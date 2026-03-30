@@ -1,0 +1,39 @@
+# --- Environment ---
+env/
+venv/
+.venv/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# --- Django ---
+db.sqlite3
+*.log
+media/
+staticfiles/
+static/
+
+# Ignore all migrations EXCEPT __init__.py
+*/migrations/*
+!*/migrations/__init__.py
+
+# --- IDE / Editor ---
+.vscode/
+.idea/
+
+# --- OS Files ---
+.DS_Store
+Thumbs.db
+
+# --- Git ---
+*.orig  # merge conflict leftovers from Git
+
+# --- Others ---
+*.env
+.env.*
+
+logs/
