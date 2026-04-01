@@ -42,7 +42,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'accounts',
     'shops',
-    'products',
+    'products.apps.ProductsConfig',
     'sales',
     'sync',
     'health',

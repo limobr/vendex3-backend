@@ -3,6 +3,9 @@ import uuid
 from django.contrib.auth.models import User
 from shops.models import Business, Shop
 
+# ========================
+# TAX
+# ========================
 class Tax(models.Model):
     TAX_TYPES = (
         ('standard', 'Standard VAT'),
@@ -20,7 +23,9 @@ class Tax(models.Model):
     def __str__(self):
         return f"{self.name} ({self.rate}%)"
 
-
+# ========================
+# CATEGORY
+# ========================
 class Category(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     business = models.ForeignKey(Business, on_delete=models.CASCADE, related_name='categories')
@@ -46,7 +51,9 @@ class Category(models.Model):
     def __str__(self):
         return self.name
 
-
+# ========================
+# PRODUCT
+# ========================
 class Product(models.Model):
     PRODUCT_TYPES = (
         ('physical', 'Physical Product'),
@@ -129,7 +136,9 @@ class Product(models.Model):
         else:
             return self.inventory.filter(current_stock__gt=0).exists()
 
-
+# ========================
+# PRODUCT ATTRIBUTE
+# ========================
 class ProductAttribute(models.Model):
     """Represents attributes like Size, Color, Weight, etc."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -147,7 +156,9 @@ class ProductAttribute(models.Model):
     def __str__(self):
         return f"{self.product.name} - {self.name}"
 
-
+# ========================
+# PRODUCT ATTRIBUTE VALUE
+# ========================
 class ProductAttributeValue(models.Model):
     """Represents specific values for attributes like 'S', 'M', 'L' for Size."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -164,7 +175,9 @@ class ProductAttributeValue(models.Model):
     def __str__(self):
         return f"{self.attribute.name}: {self.value}"
 
-
+# ========================
+# PRODUCT VARIANT
+# ========================
 class ProductVariant(models.Model):
     """Represents a specific variant of a product (e.g., Shirt Size M, Color Blue)."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -242,7 +255,9 @@ class ProductVariant(models.Model):
         """Get effective wholesale price (variant or product base)."""
         return self.wholesale_price or self.product.base_wholesale_price
 
-
+# ========================
+# PRODUCT VARIANT ATTRIBUTE
+# ========================
 class ProductVariantAttribute(models.Model):
     """Links variants to specific attribute values."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -260,7 +275,9 @@ class ProductVariantAttribute(models.Model):
     def __str__(self):
         return f"{self.variant} - {self.attribute.name}: {self.value.value}"
 
-
+# ========================
+# INVENTORY
+# ========================
 class Inventory(models.Model):
     """Tracks inventory for products/variants per shop."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -290,6 +307,8 @@ class Inventory(models.Model):
 
     # Status
     last_restocked = models.DateTimeField(null=True, blank=True)
+    last_movement = models.DateTimeField(null=True, blank=True)  # NEW: track latest stock movement
+    is_locked = models.BooleanField(default=False)               # NEW: prevent updates during audits/sync
     is_active = models.BooleanField(default=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -328,7 +347,49 @@ class Inventory(models.Model):
             return self.variant.product
         return None
 
+# ========================
+# STOCK MOVEMENT (NEW)
+# ========================
+class StockMovement(models.Model):
+    """Records every stock change with full audit trail."""
+    MOVEMENT_TYPES = (
+        ('in', 'Stock In'),
+        ('out', 'Stock Out'),
+        ('sale', 'Sale Deduction'),
+        ('return', 'Customer Return'),
+        ('adjustment', 'Manual Adjustment'),
+        ('transfer', 'Stock Transfer'),
+    )
 
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    # Link to the affected inventory record
+    inventory = models.ForeignKey(Inventory, on_delete=models.CASCADE, related_name='movements')
+    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='stock_movements')
+
+    # Denormalized fields for easier querying (optional but convenient)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, null=True, blank=True)
+    variant = models.ForeignKey(ProductVariant, on_delete=models.CASCADE, null=True, blank=True)
+
+    movement_type = models.CharField(max_length=20, choices=MOVEMENT_TYPES)
+    quantity = models.IntegerField()  # Positive for additions, negative for deductions
+
+    reference = models.CharField(max_length=100, blank=True, null=True)  # e.g. receipt number, PO
+    reason = models.CharField(max_length=255, blank=True, null=True)
+
+    performed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.movement_type}: {self.quantity} units for {self.inventory}"
+
+# ========================
+# PRICE HISTORY
+# ========================
 class PriceHistory(models.Model):
     """Tracks price changes for products/variants."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -381,7 +442,9 @@ class PriceHistory(models.Model):
         target = self.variant.display_name if self.variant else self.product.name
         return f"{target} - {self.price_type}: {self.old_price} → {self.new_price}"
 
-
+# ========================
+# PRODUCT IMAGE
+# ========================
 class ProductImage(models.Model):
     """Additional images for products/variants."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
