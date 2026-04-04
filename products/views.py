@@ -9,7 +9,7 @@ import logging
 from django.db import models
 from shops.models import Business, Shop
 from .models import (
-    PriceHistory, Product, Category, ProductImage, Tax, Inventory, ProductAttribute, 
+    PriceHistory, Product, Category, ProductImage, StockMovement, Tax, Inventory, ProductAttribute, 
     ProductAttributeValue, ProductVariant, ProductVariantAttribute
 )
 from django.db import transaction
@@ -2243,3 +2243,79 @@ class ProductIncrementalSyncView(APIView):
                 'success': False,
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ProductRestockView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        data = request.data
+        if not isinstance(data, list):
+            return Response({'success': False, 'error': 'Request must be a list'}, status=400)
+
+        results = []
+        errors = []
+        with transaction.atomic():
+            for idx, item in enumerate(data):
+                try:
+                    quantity = item.get('quantity')
+                    if not quantity or int(quantity) <= 0:
+                        errors.append({'index': idx, 'error': 'Invalid quantity'})
+                        continue
+
+                    shop_id = item.get('shop_id')
+                    product_id = item.get('product_id')
+                    variant_id = item.get('variant_id')
+
+                    if not shop_id or (not product_id and not variant_id):
+                        errors.append({'index': idx, 'error': 'shop_id and either product_id or variant_id required'})
+                        continue
+
+                    shop = Shop.objects.get(id=shop_id, business__owner=user)
+                    if product_id:
+                        product = Product.objects.get(id=product_id, business__owner=user, is_active=True)
+                        if product.has_variants:
+                            errors.append({'index': idx, 'error': 'Product has variants; specify variant_id'})
+                            continue
+                        inventory, _ = Inventory.objects.get_or_create(
+                            product=product, shop=shop,
+                            defaults={'current_stock': 0, 'minimum_stock': product.reorder_level}
+                        )
+                    else:
+                        variant = ProductVariant.objects.get(id=variant_id, product__business__owner=user, is_active=True)
+                        inventory, _ = Inventory.objects.get_or_create(
+                            variant=variant, shop=shop,
+                            defaults={'current_stock': 0, 'minimum_stock': variant.product.reorder_level}
+                        )
+
+                    inventory.current_stock += int(quantity)
+                    inventory.last_restocked = timezone.now()
+                    inventory.last_movement = timezone.now()
+                    inventory.save()
+
+                    StockMovement.objects.create(
+                        inventory=inventory,
+                        shop=shop,
+                        product=product_id and inventory.product,
+                        variant=variant_id and inventory.variant,
+                        movement_type='in',
+                        quantity=int(quantity),
+                        reference=item.get('reference', ''),
+                        reason=f"Restock from {item.get('supplier', 'supplier')}",
+                        performed_by=user
+                    )
+
+                    results.append({
+                        'index': idx,
+                        'product_id': str(product_id) if product_id else None,
+                        'variant_id': str(variant_id) if variant_id else None,
+                        'new_stock': inventory.current_stock
+                    })
+                except Exception as e:
+                    errors.append({'index': idx, 'error': str(e)})
+
+            if errors:
+                raise Exception("Rollback due to errors")
+
+        return Response({'success': True, 'results': results})

@@ -21,4 +21,7 @@ urlpatterns = [
     path('download/all/', views.ProductDownloadAllView.as_view(), name='product-download-all'),
     path('sync/incremental/', views.ProductIncrementalSyncView.as_view(), name='product-incremental-sync'),
     path('sync/', views.ProductSyncView.as_view(), name='product-sync'),
+
+    # Inventory
+    path('restock/', views.ProductRestockView.as_view(), name='product-restock'),
 ]
